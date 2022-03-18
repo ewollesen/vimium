@@ -41,6 +41,10 @@ function buildStorePackage() {
     "package-lock.json",
     "test_harnesses",
     "tests",
+    "web-ext-config.js",
+    "Dockerfile",
+    "web-ext-artifacts",
+    "sign.sh",
   ];
   const manifestContents = require("./manifest.json");
   const rsyncOptions = ["-r", ".", "dist/vimium"].concat(
