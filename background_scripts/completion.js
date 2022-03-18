@@ -47,6 +47,8 @@ class Suggestion {
   // The generated HTML string for showing this suggestion in the Vomnibar.
   html;
   searchUrl;
+  // @filterFunction can remove the suggestion based on the query terms.
+  filterFunction = null;
 
   constructor(options) {
     Object.seal(this);
@@ -605,6 +607,36 @@ const maxResults = 10;
 class MultiCompleter {
   constructor(completers) {
     this.completers = completers;
+    this.filterInProgress = false;
+    this.mostRecentQuery = null;
+    // These filter functions are based on a Firefox address bar feature described here:
+    // https://support.mozilla.org/en-US/kb/address-bar-autocomplete-firefox#w_changing-results-on-the-fly
+    this.filterFunctions = {
+      // Only show suggestions to bookmarks.
+      "*": (({ type }) => type === "bookmark"),
+      // Only show suggestions from history.
+      "^": (({ type }) => type === "history"),
+      // Only show suggestions for open tabs.
+      "%": (({ type }) => type === "tab"),
+      // Only show suggestions whose title contains all the query terms (case-insensitive).
+      "#": (({ title, queryTerms }) => {
+        // This would also match against bookmark tags, but we can't access bookmark tags via the API.
+        return queryTerms.reduce((a, term) => {
+          return a && title.toLocaleLowerCase().includes(term.toLocaleLowerCase())
+        }, true)
+      }),
+      // Only show suggestions whose url contains all the query terms (case-insensitive).
+      "$": (({ url, queryTerms }) => {
+        return queryTerms.reduce((a, term) => {
+          return a && url.toLocaleLowerCase().includes(term.toLocaleLowerCase())
+        }, true)
+      }),
+      // Show only bookmarks whose tags match the query terms. The tags are not
+      // exposed via API, so this can't be implemented at this time.
+      // "+": "",
+      // Show only search suggestions. This isn't useful in the vomnibar.
+      // "?": (({ isCustomSearch }) => isCustomSearch),
+    };
   }
 
   refresh() {
@@ -619,6 +651,20 @@ class MultiCompleter {
     }
   }
 
+  // Extract the filter keys from the query terms, and assign the filter function accordingly.
+  extractFilterKeys(request) {
+    let filterFunction;
+    const queryTerms = request.queryTerms.filter((term) => {
+      let hasFilter = this.filterFunctions[term];
+      if (hasFilter) {
+        filterFunction ||= hasFilter
+        return false
+      }
+      return true
+    });
+    return Object.assign(request, {filterFunction, queryTerms});
+  }
+
   async filter(request) {
     const searchEngineCompleter = this.completers.find((c) => c instanceof SearchEngineCompleter);
     const query = request.query;
@@ -629,8 +675,14 @@ class MultiCompleter {
     // If the user's query matches one of their custom search engines, then use only that engine to
     // provide completions for their query.
     const completers = queryMatchesUserSearchEngine
-      ? [searchEngineCompleter]
-      : this.completers.filter((c) => c != searchEngineCompleter);
+	  ? [searchEngineCompleter]
+	  : this.completers.filter((c) => c != searchEngineCompleter);
+
+    Settings.use("filterOmnibarSuggestions", enabled => {
+      if (enabled) {
+	request = this.extractFilterKeys(request);
+      }
+    });
 
     RegexpCache.clear();
 
@@ -642,17 +694,25 @@ class MultiCompleter {
 
   // Rank them, simplify the URLs, and de-duplicate suggestions with the same simplified URL.
   postProcessSuggestions(request, queryTerms, suggestions) {
-    for (const s of suggestions) {
+    // Remove suggestions that don't match the requested filter.
+    let filteredSuggestions = suggestions.filter((suggestion) => {
+      return !request.filterFunction || request.filterFunction(suggestion);
+    });
+    // Delete the filterFunction so Firefox doesn't choke on it later.
+    delete request.filterFunction;
+
+    // Compute suggestion relevancies and sort.
+    for (const s of filteredSuggestions)
       s.computeRelevancy(queryTerms);
-    }
-    suggestions.sort((a, b) => b.relevancy - a.relevancy);
+
+    filteredSuggestions.sort((a, b) => b.relevancy - a.relevancy);
 
     // Simplify URLs and remove duplicates (duplicate simplified URLs, that is).
     let count = 0;
     const seenUrls = {};
 
     const dedupedSuggestions = [];
-    for (const s of suggestions) {
+    for (const s of filteredSuggestions) {
       const url = s.shortenUrl();
       if (s.deDuplicate && seenUrls[url]) continue;
       if (count++ === maxResults) break;
