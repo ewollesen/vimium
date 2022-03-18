@@ -178,6 +178,55 @@ class DuckDuckGo extends BaseEngine {
   }
 }
 
+class Mildred extends BaseEngine {
+  constructor() {
+    super({
+      engineUrl: "https://mildred.xmtp.net/api/db/search?q=%s",
+      regexps: ["^https?://mildred\\.xmtp\\.net/"],
+      example: {
+        searchUrl: "https://mildred.xmtp.net/search?q=%s",
+        keyword: "m",
+        description: "Mildred"
+      }
+    });
+  }
+
+  parse(xhr) {
+    let json = JSON.parse(xhr.responseText);
+    return json.results.hits.map((hit) => {
+      if (hit.artist)
+        return hit.artist.name;
+      else if (hit.release)
+        return hit.release.title;
+      else if (hit.song)
+        return hit.song.title;
+      else if (hit.mood)
+        return hit.mood.name;
+      else
+        return "unknown search hit";
+    });
+  }
+}
+
+class Wowhead extends BaseEngine {
+  constructor() {
+    super({
+      engineUrl: "https://www.wowhead.com/search/suggestions-template?q=%s",
+      regexps: ["^https?://(www\\.)?wowhead\\.com/"],
+      example: {
+        searchUrl: "https://www.wowhead.com/search?q=%s",
+        keyword: "wh",
+        description: "Wowhead.com"
+      }
+    });
+  }
+
+  parse(xhr) {
+    let results = JSON.parse(xhr.responseText).results;
+    return results.map((result) => result.name);
+  }
+}
+
 class Webster extends BaseEngine {
   constructor() {
     super({
@@ -252,6 +301,8 @@ const CompletionEngines = [
   Webster,
   Qwant,
   UpToDate,
+  Wowhead,
+  Mildred,
   DummyCompletionEngine
 ];
 
