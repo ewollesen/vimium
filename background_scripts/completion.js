@@ -607,17 +607,15 @@ const maxResults = 10;
 class MultiCompleter {
   constructor(completers) {
     this.completers = completers;
-    this.filterInProgress = false;
-    this.mostRecentQuery = null;
     // These filter functions are based on a Firefox address bar feature described here:
     // https://support.mozilla.org/en-US/kb/address-bar-autocomplete-firefox#w_changing-results-on-the-fly
     this.filterFunctions = {
       // Only show suggestions to bookmarks.
-      "*": (({ type }) => type === "bookmark"),
+      "*": (({ description }) => description === "bookmark"),
       // Only show suggestions from history.
-      "^": (({ type }) => type === "history"),
+      "^": (({ description }) => description === "history"),
       // Only show suggestions for open tabs.
-      "%": (({ type }) => type === "tab"),
+      "%": (({ description }) => description === "tab"),
       // Only show suggestions whose title contains all the query terms (case-insensitive).
       "#": (({ title, queryTerms }) => {
         // This would also match against bookmark tags, but we can't access bookmark tags via the API.
@@ -666,6 +664,10 @@ class MultiCompleter {
   }
 
   async filter(request) {
+    if (Settings.get("filterOmnibarSuggestions")) {
+      request = this.extractFilterKeys(request);
+    }
+
     const searchEngineCompleter = this.completers.find((c) => c instanceof SearchEngineCompleter);
     const query = request.query;
     const queryTerms = request.queryTerms;
@@ -675,14 +677,9 @@ class MultiCompleter {
     // If the user's query matches one of their custom search engines, then use only that engine to
     // provide completions for their query.
     const completers = queryMatchesUserSearchEngine
-	  ? [searchEngineCompleter]
-	  : this.completers.filter((c) => c != searchEngineCompleter);
+      ? [searchEngineCompleter]
+      : this.completers.filter((c) => c != searchEngineCompleter);
 
-    Settings.use("filterOmnibarSuggestions", enabled => {
-      if (enabled) {
-	request = this.extractFilterKeys(request);
-      }
-    });
 
     RegexpCache.clear();
 
