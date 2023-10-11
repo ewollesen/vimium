@@ -82,6 +82,7 @@ async function buildStorePackage() {
     "make.js",
     "deno.json",
     "deno.lock",
+    "node_modules",
     "test_harnesses",
     "tests",
   ];
